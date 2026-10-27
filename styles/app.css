@@ -120,6 +120,21 @@ button { font: inherit; }
 .empty-tagline { font-family: var(--font-heading); font-size: 18px; color: var(--color-accent-700); margin-bottom: 6px; }
 .empty .btn { margin-top: 8px; }
 
+/* — copia de seguridad — */
+.backup {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px;
+  padding-top: 20px; border-top: 1px solid var(--color-divider);
+}
+.backup-text { flex: 1 1 320px; }
+.backup-title { font-family: var(--font-heading); font-size: 18px; }
+.backup-sub { font-size: 13px; color: var(--color-neutral-700); max-width: 52ch; }
+.backup-actions { display: flex; gap: 8px; }
+.backup-msg { flex-basis: 100%; margin: 0; min-height: 1.55em; font-size: 13px; font-weight: 600; color: var(--color-accent-2-700); }
+.backup-msg.is-error { color: var(--color-accent-700); }
+.is-mobile .backup { padding-top: 16px; }
+.is-mobile .backup-actions { width: 100%; }
+.is-mobile .backup-actions .btn { flex: 1; padding-block: 12px; }
+
 /* — diálogo — */
 .dialog-backdrop { z-index: 10; }
 .dialog-actions .spacer { margin-right: auto; }

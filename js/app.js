@@ -13,6 +13,8 @@ const ICON = {
   next: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
   edit: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>',
+  upload: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>',
 };
 
 // — fechas (siempre a medianoche local) —
@@ -41,7 +43,7 @@ function loadView() {
   try { return localStorage.getItem(VIEW_KEY) === 'month' ? 'month' : 'week'; } catch { return 'week'; }
 }
 
-const state = { data: load(), view: loadView(), today: getToday(), anchor: getToday(), dialog: null };
+const state = { data: load(), view: loadView(), today: getToday(), anchor: getToday(), dialog: null, notice: null };
 const mobileQuery = matchMedia('(max-width: 760px)');
 const root = document.getElementById('app');
 
@@ -167,7 +169,7 @@ function render() {
     : desktopBoard(days);
 
   root.className = `app${mobile ? ' is-mobile' : ''}`;
-  root.innerHTML = header + body + (habits.length ? heatmapHtml() : '') + (state.dialog ? dialogHtml() : '');
+  root.innerHTML = header + body + (habits.length ? heatmapHtml() : '') + backupHtml() + (state.dialog ? dialogHtml() : '');
 
   if (mobile && state.view === 'month') scrollStripsToToday();
   const hm = root.querySelector('.hm-scroll');
@@ -231,6 +233,112 @@ function heatmapHtml() {
         </div>
       </div>
     </section>`;
+}
+
+// — copia de seguridad (exportar / importar JSON) —
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function backupHtml() {
+  const n = state.notice;
+  return `
+    <footer class="backup">
+      <div class="backup-text">
+        <div class="backup-title">Copia de seguridad</div>
+        <div class="backup-sub">Tus hábitos solo se guardan en este dispositivo. Exporta un archivo para no perderlos o pasarlos a otro.</div>
+      </div>
+      <div class="backup-actions">
+        <button class="btn btn-secondary" data-action="export"${state.data.habits.length ? '' : ' disabled'}>${ICON.download}Exportar</button>
+        <button class="btn btn-secondary" data-action="import">${ICON.upload}Importar</button>
+      </div>
+      <p class="backup-msg${n && n.error ? ' is-error' : ''}" role="status" aria-live="polite">${n ? esc(n.text) : ''}</p>
+    </footer>`;
+}
+
+let noticeTimer;
+function notify(text, error = false) {
+  state.notice = { text, error };
+  const el = root.querySelector('.backup-msg');
+  if (el) { el.textContent = text; el.classList.toggle('is-error', error); }
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    state.notice = null;
+    const msg = root.querySelector('.backup-msg');
+    if (msg) msg.textContent = '';
+  }, 6000);
+}
+
+async function exportData() {
+  const json = JSON.stringify({ app: 'ritmo', version: 1, exportedAt: new Date().toISOString(), habits: state.data.habits }, null, 2);
+  const name = `ritmo-${toKey(state.today)}.json`;
+  const file = new File([json], name, { type: 'application/json' });
+  // En móvil, el menú de compartir permite "Guardar en Archivos"; la descarga directa falla en la PWA de iOS.
+  if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: 'Copia de Ritmo' });
+      notify('Copia exportada.');
+    } catch (err) {
+      if (err.name !== 'AbortError') notify('No se pudo compartir el archivo.', true);
+    }
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  notify(`Descargado ${name}.`);
+}
+
+// Acepta el formato exportado ({ habits: [...] }) o directamente la lista; descarta lo que no encaje.
+function parseBackup(text) {
+  const raw = JSON.parse(text);
+  const list = Array.isArray(raw) ? raw : raw && raw.habits;
+  if (!Array.isArray(list)) throw new Error('formato');
+  return list.map(h => {
+    if (!h || typeof h.name !== 'string' || !h.name.trim()) throw new Error('hábito');
+    const done = {};
+    for (const [k, v] of Object.entries(h.done || {})) if (DATE_RE.test(k) && v) done[k] = 1;
+    const created = DATE_RE.test(h.created) ? h.created : Object.keys(done).sort()[0] || toKey(state.today);
+    return { id: typeof h.id === 'string' && h.id ? h.id : newId(), name: h.name.trim().slice(0, 60), created, done };
+  });
+}
+
+// Fusiona sin borrar nada: mismos hábitos (por id) suman sus días marcados; los nuevos se añaden.
+function mergeHabits(incoming) {
+  let added = 0, merged = 0;
+  for (const h of incoming) {
+    const cur = state.data.habits.find(x => x.id === h.id);
+    if (cur) {
+      Object.assign(cur.done, h.done);
+      if (h.created < cur.created) cur.created = h.created;
+      merged++;
+    } else {
+      state.data.habits.push(h);
+      added++;
+    }
+  }
+  return { added, merged };
+}
+
+function importData() {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'application/json,.json' });
+  input.addEventListener('change', async () => {
+    const f = input.files[0];
+    if (!f) return;
+    try {
+      const { added, merged } = mergeHabits(parseBackup(await f.text()));
+      save();
+      render();
+      const parts = [];
+      if (added) parts.push(`${added} ${added === 1 ? 'hábito nuevo' : 'hábitos nuevos'}`);
+      if (merged) parts.push(`${merged} ${merged === 1 ? 'hábito actualizado' : 'hábitos actualizados'}`);
+      notify(parts.length ? `Importado: ${parts.join(' y ')}.` : 'El archivo no tenía hábitos.');
+    } catch {
+      notify('Ese archivo no es una copia de Ritmo válida.', true);
+    }
+  });
+  input.click();
 }
 
 const tooltip = document.createElement('div');
@@ -410,6 +518,8 @@ root.addEventListener('click', e => {
     case 'next': shift(1); break;
     case 'today': state.anchor = state.today; render(); break;
     case 'new': openDialog(null); break;
+    case 'export': exportData(); break;
+    case 'import': importData(); break;
     case 'edit': openDialog(el.dataset.habit); break;
     case 'close': closeDialog(); break;
     case 'delete': {
