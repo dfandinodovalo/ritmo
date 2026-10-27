@@ -1,5 +1,5 @@
 // Service worker de Ritmo: app shell en caché para funcionar sin conexión.
-const VERSION = 'ritmo-v4';
+const VERSION = 'ritmo-v5';
 const SHELL = [
   './',
   'index.html',
